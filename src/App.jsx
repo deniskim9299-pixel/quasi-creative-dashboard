@@ -14,7 +14,7 @@ const fmtNum = (n) => n == null ? "—" : Number(n).toLocaleString();
 const fmtPct = (n) => n == null ? "—" : `${Number(n).toFixed(1)}%`;
 
 // GitHub repo that owns data/mappings.json (Data Clean Up saves commit here).
-const GITHUB_REPO = "quasi-health/quasi-creative-dashboard";
+const GITHUB_REPO = "deniskim9299-pixel/quasi-creative-dashboard";
 
 const TABS = ["Overview", "Win Rate", "Concepts", "Strategists", "Creators", "Breakdowns", "Analysis", "Data Clean Up"];
 const THRESHOLDS = ["$1K", "$5K", "$15K", "$25K", "$50K", "$100K", "$150K+"];

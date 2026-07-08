@@ -4,7 +4,7 @@ Ad-level creative performance dashboard for Quasi (officialquasi.com), ported
 from the IM8 creative dashboard with the Northbeam data source swapped for
 **Triple Whale**.
 
-**Live:** https://&lt;owner&gt;.github.io/quasi-creative-dashboard/
+**Live:** https://deniskim9299-pixel.github.io/quasi-creative-dashboard/
 
 ## How it works
 
