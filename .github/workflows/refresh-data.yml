@@ -1,0 +1,52 @@
+name: Refresh Triple Whale data
+
+on:
+  schedule:
+    # 10am / 2pm / 6pm / midnight MYT (UTC+8) = 02:00 / 06:00 / 10:00 / 16:00 UTC.
+    # Offset 1h from the sibling IM8 creative-dashboard cron (01/05/09/15 UTC)
+    # so the two never race shared APIs even with GitHub's ~1.5h cron delay.
+    - cron: '0 2,6,10,16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run parser tests
+        run: |
+          pip install -q pytest
+          pytest scripts/ -q
+
+      - name: Fetch Triple Whale data
+        env:
+          TRIPLEWHALE_API_KEY: ${{ secrets.TRIPLEWHALE_API_KEY }}
+          TRIPLEWHALE_SHOP_ID: ${{ secrets.TRIPLEWHALE_SHOP_ID }}
+        run: python scripts/fetch_triplewhale.py
+
+      # No history snapshots are committed — that bloated the IM8 repo past
+      # 1GB. latest.json is the only data artifact; first_seen.json persists
+      # ad birthdates beyond the lookback window.
+      - name: Commit refreshed data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/latest.json data/first_seen.json
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "chore(data): refresh Triple Whale $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
