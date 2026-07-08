@@ -145,6 +145,10 @@ def run_sql(shop_id: str, query: str, start: str, end: str) -> list:
         "period": {"startDate": start, "endDate": end},
     }
     res = _request("POST", "/orcabase/api/sql", payload)
+    # The live endpoint returns a bare array of row objects; the docs show a
+    # {success, data} wrapper. Accept both.
+    if isinstance(res, list):
+        return res
     if not res.get("success", True) and "data" not in res:
         raise RuntimeError(f"SQL query failed: {json.dumps(res)[:300]}")
     return res.get("data") or []

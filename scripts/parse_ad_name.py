@@ -77,9 +77,18 @@ FORMATS = {
 # Landing-page tokens (MHI family mostly).
 LANDING_PAGES = {"PDP", "LP", "HP", "ADV", "ADVERTORIAL", "LISTICLE"}
 
-HOOK_RE = re.compile(r"^H(?:OOK)?[\s_-]?(\d{1,2})$", re.IGNORECASE)
+HOOK_RE = re.compile(r"^H(?:OOK)?[\s_-]?#?(\d{1,2})$", re.IGNORECASE)
 AWARENESS_RE = re.compile(
-    r"^(?:(problem|solution|product|prodcut|porduct)[\s_-]*aware(?:ness)?|un[\s_-]*aware)$",
+    r"^(?:(problem|solution|product|prodcut|porduct)[\s_-]*aware(?:ness)?|un[\s_-]*a?ware)$",
+    re.IGNORECASE,
+)
+# Status tokens (new creative vs iteration) — stored in the otherwise-unused
+# paid_seed slot so they don't pollute concept.
+STATUS_TOKENS = {"NEW", "FRESH", "ITER", "ITERATION", "WINNER ITERATION"}
+# Funnel-stage, version, duration, and aspect-ratio tokens carry no dashboard
+# dimension — drop them entirely.
+SKIP_RE = re.compile(
+    r"^(tofu?|mofu?|bofu?|v\s?\d{1,2}|\d+\s*(sec|secs|s)|\d+\s*min(\s*\d+\s*sec)?|\d+x\d+)$",
     re.IGNORECASE,
 )
 # Style/creator-type tokens: anything that reads like a production style.
@@ -145,6 +154,8 @@ def _clean_suffixes(name: str) -> str:
         prev = w
         w = re.sub(r"\s*[-–]\s*copy(\s*\d+)?$", "", w, flags=re.IGNORECASE)
         w = re.sub(r"\s*\(\d+\)$", "", w)
+        w = re.sub(r"\s*\(variation\s*\d+\)$", "", w, flags=re.IGNORECASE)
+        w = re.sub(r"\.(mp4|mov|png|jpe?g|gif)$", "", w, flags=re.IGNORECASE)
         w = re.sub(r"\s*@2x$", "", w, flags=re.IGNORECASE)
         w = re.sub(r"[\s_-]+adnova$", "", w, flags=re.IGNORECASE)
         w = re.sub(r"-{2,}$", "", w)
@@ -200,6 +211,12 @@ def _classify_tokens(tokens: list, result: dict) -> list:
         if not tok or tok.upper() in {"NA", "N/A"}:
             continue
         up = tok.upper()
+        if SKIP_RE.match(tok):
+            continue
+        if up in STATUS_TOKENS:
+            if not result["paid_seed"]:
+                result["paid_seed"] = tok.title()
+            continue
         hook = _canon_hook(tok)
         aware = _canon_awareness(tok)
         if hook and not result["hook"]:
@@ -312,10 +329,10 @@ def _parse_product_dash(working: str, result: dict) -> None:
 
 def _parse_leading_number(working: str, result: dict) -> None:
     result["convention"] = "leading_number"
-    tokens = [t for t in re.split(r"[_]", working) if t.strip()]
-    # Batch number leads; product token follows in any casing (Glow, glow).
-    if tokens and tokens[0].isdigit():
-        result["creative_no"] = tokens[0]
+    tokens = [t.strip() for t in re.split(r"[_]", working) if t.strip()]
+    # Batch number leads (sometimes #-prefixed); product may follow in any casing.
+    if tokens and tokens[0].lstrip("#").isdigit():
+        result["creative_no"] = tokens[0].lstrip("#")
         tokens = tokens[1:]
     if tokens and tokens[0].upper() in PRODUCTS:
         result["batch_name"] = PRODUCTS[tokens[0].upper()]
@@ -326,16 +343,25 @@ def _parse_leading_number(working: str, result: dict) -> None:
 
 def _parse_pb_legacy(working: str, result: dict) -> None:
     result["convention"] = "pb_legacy"
-    m = re.match(r"^(P\d+)[\s_-]+B(\d+)", working, re.IGNORECASE)
+    m = re.match(r"^(P\d+)[\s_-]+B#?(\d+)", working, re.IGNORECASE)
     if m:
         result["batch_name"] = m.group(1).upper()
         result["creative_no"] = m.group(2)
         rest = working[m.end():]
     else:
-        m2 = re.match(r"^B(\d+)", working, re.IGNORECASE)
+        # B-batch (B806 / B#828), ID# batch, or a bare P-phase — the batch
+        # token may also sit mid-name ("Q 90 - V1 - B#90_Fresh_…").
+        m2 = (
+            re.match(r"^(?:B|ID)#?(\d{1,4})", working, re.IGNORECASE)
+            or re.search(r"\b(?:B|ID)#?(\d{2,4})[\s_]", working, re.IGNORECASE)
+        )
+        m3 = re.match(r"^(P\d{1,3})[\s_]", working, re.IGNORECASE)
         if m2:
             result["creative_no"] = m2.group(1)
             rest = working[m2.end():]
+        elif m3:
+            result["batch_name"] = m3.group(1).upper()
+            rest = working[m3.end():]
         else:
             rest = working
     # Legacy names write hooks as "Hook 1"/"Hook1" anywhere in the string.
@@ -354,21 +380,37 @@ def _parse_pb_legacy(working: str, result: dict) -> None:
 
 
 def _detect_family(working: str) -> str:
-    if re.match(r"^P\d+[\s_-]+B\d+", working, re.IGNORECASE) or re.match(
-        r"^B\d{2,4}\b", working
+    if (
+        re.match(r"^P\d+[\s_-]+B#?\d+", working, re.IGNORECASE)
+        or re.match(r"^(?:B|ID)#?\d{1,4}[\s_\-]", working, re.IGNORECASE)
+        or re.match(r"^P\d{1,3}[\s_]", working, re.IGNORECASE)
     ):
         return "pb_legacy"
-    if re.match(r"^\d{2,4}[_-]", working):
+    if re.match(r"^#?\d{1,4}[_-]", working):
         return "leading_number"
-    first_us = re.split(r"_", working, 1)[0]
-    first_dash = re.split(r"-", working, 1)[0]
+    if re.match(r"^adsplash[\s_-]", working, re.IGNORECASE):
+        return "adsplash"
+    first_us = re.split(r"_", working, 1)[0].strip()
+    first_dash = re.split(r"-", working, 1)[0].strip()
     if first_us.upper() in PRODUCTS and working.count("_") >= working.count("-"):
         return "product_underscore"
     if first_dash.upper() in PRODUCTS:
         return "product_dash"
     if first_us.upper() in PRODUCTS:
         return "product_underscore"
+    # Mid-name batch token (e.g. "Q 90 - V1 - B#90_Fresh_…") — legacy batch.
+    if re.search(r"\bB#\d{2,4}[\s_]", working):
+        return "pb_legacy"
     return "freeform"
+
+
+def _parse_adsplash(working: str, result: dict) -> None:
+    """AdSplash agency names: AdSplash_Concept 3 AI Ad-Bought Yesterday_H3"""
+    result["convention"] = "adsplash"
+    result["batch_name"] = "ADSPLASH"
+    tokens = [t.strip() for t in working.split("_") if t.strip()][1:]  # drop prefix
+    leftovers = _classify_tokens(tokens, result)
+    _assign_concept_and_names(leftovers, tokens, result)
 
 
 _FAMILY_PARSERS = {
@@ -376,7 +418,8 @@ _FAMILY_PARSERS = {
     "product_dash": _parse_product_dash,
     "leading_number": _parse_leading_number,
     "pb_legacy": _parse_pb_legacy,
-    # Family #6 (the reworked convention) slots in here when it ships.
+    "adsplash": _parse_adsplash,
+    # The reworked convention slots in here as its own family when it ships.
 }
 
 
@@ -392,6 +435,10 @@ def parse_ad_name(name: str) -> dict:
 
     working = _clean_suffixes(name)
     working = _strip_version_suffix(working)
+    # One family wraps every token in brackets ([56]_[New]_[Video]_…) —
+    # normalize them away so detection and dedup see the plain name.
+    if "]_[" in working or working.startswith("["):
+        working = working.replace("[", "").replace("]", "")
     result["dedup_key"] = working
 
     family = _detect_family(working)

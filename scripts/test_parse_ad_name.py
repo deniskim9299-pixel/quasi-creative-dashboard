@@ -186,3 +186,72 @@ def test_stable_schema_keys():
         "winner", "winner_year", "winner_month", "winner_week", "dedup_key",
     }
     assert keys == expected
+
+
+def test_b_batch_underscore_legacy():
+    p = parse_ad_name("B806_New_Hook1_Video_66 Sec_Reda_Daniyal - Copy")
+    assert p["convention"] == "pb_legacy"
+    assert p["creative_no"] == "806"
+    assert p["hook"] == "H1"
+    assert p["format"] == "VID"
+    assert p["paid_seed"] == "New"          # New/Fresh status token
+    assert p["creator_name"] == "Reda"
+    assert p["agency"] == "Daniyal"
+
+
+def test_b_hash_batch_and_hook_hash():
+    p = parse_ad_name(
+        "B#828_New_Problem Aware_The Confidence Lost_Glass skin_Hook#3_UGC Head Talking_Model_Video_130Sec_Reda_Ali"
+    )
+    assert p["creative_no"] == "828"
+    assert p["hook"] == "H3"
+    assert p["problem"] == "ProblemAware"
+
+
+def test_iter_mashup_family():
+    p = parse_ad_name(
+        "#47_ITER_TOFU_Elizabeth K Hooks_Winner iteration_ Mashups_Bio collagen mask_Iteration_Video_2Min25Sec_Reda_Ali_Hook1"
+    )
+    assert p["convention"] == "leading_number"
+    assert p["creative_no"] == "47"
+    assert p["hook"] == "H1"
+    assert p["format"] == "VID"
+
+
+def test_bracketed_family():
+    p = parse_ad_name(
+        "[56]_[New]_[Video]_[Unware]_[Mature Glow Seeker]_[Overnight Sleeping Mask]_[Text Video]_[Lucas Max]_[Henrique]_[Hook3]"
+    )
+    assert p["convention"] == "leading_number"
+    assert p["creative_no"] == "56"
+    assert p["problem"] == "Unaware"        # "Unware" typo normalized
+    assert p["hook"] == "H3"
+
+
+def test_spaced_dash_and_variation_suffix():
+    p = parse_ad_name(
+        "PDRN - 219 - H1 - IT - Comparison - MAT - AIvoiceover - Martin - Ivan - SolutionAware (Variation 1)"
+    )
+    assert p["convention"] == "product_dash"
+    assert p["batch_name"] == "PDRN"
+    assert p["creative_no"] == "219"
+    assert p["icp"] == "IT"
+    assert p["problem"] == "SolutionAware"
+    assert not p["dedup_key"].endswith("(Variation 1)")
+
+
+def test_adsplash_family():
+    p = parse_ad_name("AdSplash_Concept 3 AI Ad-Bought Yesterday_H3 - Copy")
+    assert p["convention"] == "adsplash"
+    assert p["batch_name"] == "ADSPLASH"
+    assert p["hook"] == "H3"
+
+
+def test_id_hash_batch():
+    p = parse_ad_name(
+        "ID#1215_New_Video_MOF_Solution Aware_BFCM_Holiday Promo_UGC Head Talking_Jessica Peavey_Reda_Ali_Hook#2"
+    )
+    assert p["convention"] == "pb_legacy"
+    assert p["creative_no"] == "1215"
+    assert p["hook"] == "H2"
+    assert p["problem"] == "SolutionAware"
